@@ -253,7 +253,8 @@ function foldChart(host, o) {
 }
 
 // ================= data =================
-const S = { market: null, res: {}, busy: false, paramMemo: {}, autoRan: false };
+const S = { market: null, res: {}, busy: false, paramMemo: {}, autoRan: false, trials: new Map() };
+function logTrial(c, n) { const k = JSON.stringify([c.strat, c.ranges, c.risk, c.crit]); S.trials.set(k, n); }
 
 function bizDates(n, y0) {
   const out = []; const d = new Date(Date.UTC(y0, 0, 4));
@@ -415,7 +416,12 @@ HOW.optimize = `<details class="how"><summary>Why the best parameter set is a bi
 <p><b>Read the distribution, not just the winner.</b> If most of the grid loses money and a handful of sets shine, you are probably looking at the luckiest corner of noise.</p>
 <p><b>Sensitivity curves.</b> Masters treats these as minimal due diligence. Vary one parameter at a time around the optimum. You want a broad, smooth hill. A narrow spike means the system will fall off the cliff as markets drift. Several nearby peaks mean the score depends on catching or missing a few specific trades.</p>
 <p>The stability figure in the summary is the average score of the immediate grid neighbours of the best set, as a share of the best score. Near 1 is a plateau. Below about 0.4 is a spike.</p>
-<p class="cite">Masters ch.4, "Parameter Sensitivity Curves"; ch.5, "In-Sample and Out-of-Sample Performance".</p></div></details>`;
+<p><b>Deflated Sharpe ratio.</b> If you try N worthless strategies, the best one still shows a positive Sharpe ratio. López de Prado estimates that expected maximum from N and the spread of Sharpe ratios across your trials, then asks how likely it is that the winner's true Sharpe exceeds it. The probabilistic Sharpe ratio behind it also adjusts for track length, skewness and fat tails:</p>
+<div class="formula">PSR(SR*) = Φ( (SR − SR*) · √(T − 1) / √(1 − γ₃·SR + (γ₄ − 1)/4 · SR²) )
+SR*      = √Var[SRₙ] · ( (1 − γ)·Φ⁻¹(1 − 1/N) + γ·Φ⁻¹(1 − 1/(N·e)) )      γ ≈ 0.5772
+DSR      = PSR(SR*)                                                   want ≥ 0.95</div>
+<p>Sharpe ratios here are per bar, as the formula requires, and shown annualized. His “third law of backtesting”: every result must be reported with the number of trials behind it.</p>
+<p class="cite">Masters ch.4, "Parameter Sensitivity Curves"; ch.5, "In-Sample and Out-of-Sample Performance". López de Prado, AFML ch.14, "The Probabilistic Sharpe Ratio", "The Deflated Sharpe Ratio".</p></div></details>`;
 HOW.mcpt = `<details class="how"><summary>How the training permutation test works</summary><div class="how-body">
 <p>Shuffle the market's price changes and the patterns are destroyed, but the distribution of moves, the volatility and the overall trend survive. If the strategy and its optimizer are finding real structure, the real market should score better than almost all shuffled markets. If the optimizer is powerful enough to fit noise, it will fit the shuffled markets just as well, and the real result will not stand out.</p>
 <ol><li>Optimize on the real data and record the best score.</li><li>Shuffle the bars after the first bar where a decision is possible, then optimize again from scratch. Repeat <i>m</i> times.</li><li>Count <i>k</i>, the shuffled runs that scored at least as well as the real one.</li></ol>
@@ -473,6 +479,13 @@ HOW.nested = `<details class="how"><summary>How the nested walkforward works</su
 <p><b>The permutation test</b> reruns both levels on shuffled markets. The three segments are shuffled separately so that unusual moves in the training or warm-up periods never land in the final out-of-sample period, following Masters' CHOOSER program.</p>
 <p class="cite">Masters ch.5, "Nested Walkforward Analysis", "A Practical Application of Nested Walkforward"; ch.7, "Example: Permuting Multiple Markets".</p></div></details>`;
 
+HOW.risk = `<details class="how"><summary>How the probability of strategy failure works</summary><div class="how-body">
+<p>López de Prado separates <i>portfolio risk</i> (how much the holdings move) from <i>strategy risk</i> (the chance the strategy fails to meet its goal). Model every trade as a win of π₊ with probability p or a loss of π₋ otherwise, with n trades a year. The annualized Sharpe ratio is then</p>
+<div class="formula">θ(p) = ((π₊ − π₋)·p + π₋) / ((π₊ − π₋)·√(p(1 − p))) · √n</div>
+<p>Solve θ(p) = θ* for p to get p*, the win rate below which the strategy misses its target. Then bootstrap the walkforward trades: draw two years' worth of trades many times and count how often the win rate lands below p*. That share is the probability of failure.</p>
+<p>The lesson matches the percent-wins fallacy: a strategy with small wins and large losses can have a high win rate and still sit one bad stretch away from failure, because p* is close to p. Small changes in a quantity you do not control can erase the edge.</p>
+<p class="cite">López de Prado, <i>Advances in Financial Machine Learning</i>, ch.15, "Understanding Strategy Risk".</p></div></details>`;
+
 function buildPanels() {
   $('#tabs').innerHTML = TABS.map((t, i) => `<button class="tab" role="tab" type="button" id="tab_${t.id}" aria-controls="panel_${t.id}" aria-selected="${i === 0}" data-tab="${t.id}">${t.n ? `<span class="n">${t.n}</span>` : ''}${t.label}${['verdict', 'lab', 'method', 'backtest', 'optimize'].includes(t.id) ? '' : '<span class="dot" id="dot_' + t.id + '"></span>'}</button>`).join('');
   const P = {};
@@ -484,7 +497,7 @@ function buildPanels() {
   P.wf = `${head('wf', 'Walkforward', 'Re-optimize on the past, trade the next window, repeat. The pooled test windows are the closest thing to a live track record.', 'Run walkforward')}<div id="out_wf"></div>${HOW.wf}`;
   P.cscv = `${head('cscv', 'Probability of backtest overfitting', 'Split the history every possible way. How often does the in-sample winner finish in the bottom half out-of-sample?', 'Run CSCV')}<div id="out_cscv"></div>${HOW.cscv}`;
   P.bounds = `${head('bounds', 'Bounds on the future', 'From walkforward returns only: how low could the true mean return be, and how deep could the next year’s drawdown go?', 'Compute bounds')}
-    <div class="chk"><label><input type="checkbox" id="inMktChk" checked> Use only bars with an open position</label></div><div id="out_bounds"></div>${HOW.bounds}`;
+    <div class="chk"><label><input type="checkbox" id="inMktChk" checked> Use only bars with an open position</label><label for="thetaSel">Target Sharpe for strategy risk <select id="thetaSel"><option value="0">0 (break even)</option><option value="0.5" selected>0.5</option><option value="1">1.0</option><option value="1.5">1.5</option></select></label></div><div id="out_bounds"></div>${HOW.bounds}${HOW.risk}`;
   P.shootout = `${head('shootout', 'Strategy shootout', 'Throw several strategies at the wall and keep the best. How much of its p-value survives the fact that you picked it?', 'Run shootout')}
     <div class="card"><div class="card-head"><h3>Competitors</h3><span class="small muted">Each uses its default grid, except the strategy selected on the left, which uses yours.</span></div><div class="chk" id="shootChk"></div></div>
     <div id="out_shootout"></div>${HOW.shootout}`;
@@ -502,6 +515,7 @@ function buildPanels() {
     guarded(() => RUN[id]());
   }));
   $('#runAll').addEventListener('click', () => runAudit());
+  $('#thetaSel').addEventListener('change', () => { if (S.res.bounds) renderBounds(); });
   $('#inMktChk').addEventListener('change', () => { if (S.res.bounds) S.res.bounds.hash = 'x'; onConfigChange(); });
   $('#shootChk').innerHTML = Object.entries(STRATS).map(([id, s]) => `<label><input type="checkbox" value="${id}" ${['ma_cross', 'momentum', 'donchian', 'zscore', 'rsi', 'macd'].includes(id) ? 'checked' : ''}> ${esc(s.name)}</label>`).join('');
   $('#shootChk').addEventListener('change', onConfigChange);
@@ -534,7 +548,7 @@ async function guarded(fn) {
 }
 const RUN = {
   async backtest() { const c = getCfg(); const r = await runJob('backtest', { strat: c.strat, params: c.params, risk: c.risk }, 'Backtesting'); S.res.backtest = { r, c, hash: hashOf('backtest', c) }; renderBacktest(); },
-  async optimize() { const c = getCfg(); const r = await runJob('optimize', { strat: c.strat, ranges: c.ranges, risk: c.risk, crit: c.crit }, 'Searching the grid'); S.res.optimize = { r, c, hash: hashOf('optimize', c) }; renderOptimize(); },
+  async optimize() { const c = getCfg(); const r = await runJob('optimize', { strat: c.strat, ranges: c.ranges, risk: c.risk, crit: c.crit }, 'Searching the grid'); S.res.optimize = { r, c, hash: hashOf('optimize', c) }; logTrial(c, r.combos.length); renderOptimize(); },
   async mcpt() { const c = getCfg(); const r = await runJob('mcpt', { strat: c.strat, ranges: c.ranges, risk: c.risk, crit: c.crit, nperm: c.nperm }, 'Permutation test'); S.res.mcpt = { r, c, hash: hashOf('mcpt', c) }; renderMCPT(); },
   async wf() { const c = getCfg(); const r = await runJob('wf', { strat: c.strat, ranges: c.ranges, risk: c.risk, crit: c.crit, train: c.train, test: c.test, anchored: c.anchored, nperm: c.wfPerm }, 'Walkforward'); S.res.wf = { r, c, hash: hashOf('wf', c) }; renderWF(); },
   async cscv() { const c = getCfg(); const r = await runJob('cscv', { strat: c.strat, ranges: c.ranges, risk: c.risk, crit: c.crit, blocks: c.blocks }, 'Cross validation'); S.res.cscv = { r, c, hash: hashOf('cscv', c) }; renderCSCV(); },
@@ -696,7 +710,8 @@ function renderOptimize() {
   const profitable = r.sharpes.filter(v => v > 0).length / vals.length;
   const stab = neighbourStability(r); S.res.optimize.stab = stab;
   const scls = !isFinite(stab.ratio) ? 'info' : stab.ratio >= 0.7 ? 'good' : stab.ratio >= 0.4 ? 'warn' : 'bad';
-  const nk = r.keys.length;
+  const nk = r.keys.length, ann = Math.sqrt(c.bpy);
+  const dcls = r.dsr.dsr >= 0.95 ? 'good' : r.dsr.dsr >= 0.8 ? 'warn' : 'bad';
   let heatSel = '';
   if (nk >= 2) heatSel = `<div class="chk"><label>x <select id="hx">${r.keys.map((k, i) => `<option value="${i}" ${i === 0 ? 'selected' : ''}>${k}</option>`).join('')}</select></label><label>y <select id="hy">${r.keys.map((k, i) => `<option value="${i}" ${i === 1 ? 'selected' : ''}>${k}</option>`).join('')}</select></label>${nk > 2 ? '<span class="small muted">Other parameters held at their best values.</span>' : ''}</div>`;
   $('#out_optimize').innerHTML = kpis([
@@ -705,7 +720,21 @@ function renderOptimize() {
     { k: 'Median set', v: critFmt(c.crit, med), s: 'what a typical choice scores' },
     { k: 'Sets with Sharpe > 0', v: pctU(profitable, 0), s: 'in-sample' },
     { k: 'Neighbour stability', v: isFinite(stab.ratio) ? f2(stab.ratio) : '—', s: `${stab.n} grid neighbours of the best`, cls: scls === 'good' ? 'pos' : scls === 'bad' ? 'negv' : '' },
-  ]) + `<div class="grid2">
+    { k: 'Deflated Sharpe', v: pctU(r.dsr.dsr, 1), cls: dcls === 'good' ? 'pos' : dcls === 'bad' ? 'negv' : '', s: `after ${int(r.dsr.N)} trials` },
+  ]) + `<div class="card"><div class="card-head"><h3>Is the winner significant after ${int(r.dsr.N)} trials?</h3>${pill(dcls, 'DSR ' + pctU(r.dsr.dsr, 1))}</div>
+    <div class="grid2" style="align-items:start">
+      <div class="tablewrap"><table class="data"><tbody>
+        <tr><td class="lab">Best set's Sharpe ratio</td><td class="num">${f2(r.dsr.sr * ann)}</td></tr>
+        <tr><td class="lab">Expected best Sharpe of ${int(r.dsr.N)} worthless sets<div class="small" style="color:var(--ink-3)">what pure luck delivers with this many trials</div></td><td class="num">${f2(r.dsr.srStar * ann)}</td></tr>
+        <tr><td class="lab">Probabilistic Sharpe (vs 0)<div class="small" style="color:var(--ink-3)">P(true Sharpe > 0), ignoring the other trials</div></td><td class="num">${pctU(r.dsr.psr0, 1)}</td></tr>
+        <tr><td class="lab"><b>Deflated Sharpe</b><div class="small" style="color:var(--ink-3)">P(true Sharpe > the luck benchmark); want ≥ 95%</div></td><td class="num"><b>${pctU(r.dsr.dsr, 1)}</b></td></tr>
+        <tr><td class="lab">Track record needed<div class="small" style="color:var(--ink-3)">to beat the luck benchmark at 95%</div></td><td class="num">${isFinite(r.dsr.minTRL) ? fmtBars(Math.ceil(r.dsr.minTRL), c.bpy) : 'never'}</td></tr>
+        <tr><td class="lab">Skewness · kurtosis of the best set</td><td class="num">${f2(r.dsr.skew)} · ${f2(r.dsr.kurt)}</td></tr>
+      </tbody></table></div>
+      <div><div class="chart" id="ch_emax"></div><p class="small muted">How high the best Sharpe ratio climbs by luck alone as you try more parameter sets, for the spread of Sharpe ratios in your grid. The amber dot is your grid.</p></div>
+    </div>
+    ${reading(dcls, `<p>${r.dsr.dsr >= 0.95 ? `Even after allowing for the ${int(r.dsr.N)} sets you tried, the winner's Sharpe of ${f2(r.dsr.sr * ann)} clears the luck benchmark of ${f2(r.dsr.srStar * ann)} with ${pctU(r.dsr.dsr, 1)} confidence.` : `Trying ${int(r.dsr.N)} sets, you would expect the best one to show a Sharpe of about ${f2(r.dsr.srStar * ann)} from luck alone. The winner's ${f2(r.dsr.sr * ann)} ${r.dsr.sr > r.dsr.srStar ? 'is above that, but not by enough to be confident' : 'does not even beat that'}.`} Treat the trial count as an upper bound: neighbouring sets are correlated, so the effective number of independent trials is smaller, and the true deflation somewhat milder.</p>`)}</div>
+  <div class="grid2">
     <div class="card"><div class="card-head"><h3>Every set in the grid</h3><span class="small muted">${critName(c.crit)}</span></div><div class="chart" id="ch_dist"></div><p class="small muted">The amber line is the set you would report. It is the maximum of ${int(vals.length)} noisy numbers.</p></div>
     <div class="card"><div class="card-head"><h3>${nk >= 2 ? 'Parameter surface' : 'Sensitivity'}</h3>${heatSel}</div><div class="chart" id="ch_heat"></div>${nk >= 2 ? '<p class="small muted">Blue scores above zero, orange below. The outlined cell is the best set. Look for a broad blue region, not one bright cell.</p>' : ''}</div>
   </div>
@@ -725,6 +754,11 @@ function renderOptimize() {
   drawHeat(); if (nk >= 2) { $('#hx').addEventListener('change', drawHeat); $('#hy').addEventListener('change', drawHeat); }
   const sg = $('#sensGrid'); sg.innerHTML = r.keys.map((k, i) => `<div><div class="small muted mono">${esc(s.params[i].label)}</div><div class="chart" id="sens_${i}"></div></div>`).join('');
   r.keys.forEach((k, i) => xyChart($(`#sens_${i}`), { pts: r.lists[i].map(v => [v, lookup(Object.assign({}, best, { [k]: v }))]), markX: best[k], xTitle: k, yFmt: c.crit === 'total' ? v => (v * 100).toFixed(0) + '%' : v => v.toFixed(2), tipFmt: fmt, zeroY: c.crit !== 'pf', name: critName(c.crit), height: 180 }));
+  { const Ns = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000].filter(v => v <= Math.max(5000, r.dsr.N));
+    const pts = Ns.map(N => [Math.log10(N), expectedMaxSharpe(r.dsr.varSR, N) * ann]);
+    const ch = xyChart($('#ch_emax'), { pts, xTicks: [0, 1, 2, 3], xFmt: v => String(Math.round(Math.pow(10, v))), xTitle: 'parameter sets tried', yFmt: v => v.toFixed(1), name: 'expected best Sharpe', color: 'mark', height: 190 });
+    const od = ch.draw; ch.draw = (ctx, w, h, hv, C) => { od(ctx, w, h, hv, C); const L = 52, R = w - 12, T = 12, B = h - 36; const ys = pts.map(p => p[1]); let y0 = Math.min(...ys), y1 = Math.max(...ys); if (y0 === y1) { y0 -= 1; y1 += 1; } const py = (y1 - y0) * 0.08; y0 -= py; y1 += py; const x0 = pts[0][0], x1 = pts[pts.length - 1][0]; const X = Math.log10(Math.max(1, r.dsr.N)), Y = r.dsr.srStar * ann; ctx.fillStyle = C.real; ctx.beginPath(); ctx.arc(L + (X - x0) / (x1 - x0) * (R - L), B - (Y - y0) / (y1 - y0) * (B - T), 5.5, 0, 7); ctx.fill(); ctx.strokeStyle = C.surface; ctx.lineWidth = 2; ctx.stroke(); };
+    ch.render(); }
   $('#useBest').addEventListener('click', () => { r.keys.forEach(k => { const el = $(`#pv_${k}`); if (el) el.value = best[k]; }); onConfigChange(); toast('Backtest values set to the best set. Run the backtest again to see it.'); });
 }
 
@@ -765,6 +799,8 @@ function renderWF() {
   const pcls = r.p != null ? statusOf.p(r.p) : 'info';
   const ocls = st.annRet > 0 && st.sharpe > 0.3 ? 'good' : st.annRet > 0 ? 'warn' : 'bad';
   setDot('wf', r.p != null ? (pcls === 'good' && ocls !== 'bad' ? 'good' : pcls === 'bad' || ocls === 'bad' ? 'bad' : 'warn') : ocls);
+  const mm = sharpeMoments(r.pooled), psr = probSharpe(mm.sr, 0, mm.T, mm.skew, mm.kurt), mtrl = minTrackRecord(mm.sr, 0, mm.skew, mm.kurt, 0.05);
+  S.res.wf.psr = psr;
   const changes = r.folds.reduce((a, f, i) => a + (i && paramStr(f.params) !== paramStr(r.folds[i - 1].params) ? 1 : 0), 0);
   const fstart = r.folds.map(f => f.ts - r.oosStart).slice(1);
   $('#out_wf').innerHTML = kpis([
@@ -773,6 +809,7 @@ function renderWF() {
     { k: 'Avg in-sample annual', v: pct(simple(r.isAvgAnn)), s: 'training windows' },
     { k: 'Walkforward efficiency', v: f2(eff), s: 'OOS ÷ in-sample' },
     { k: 'OOS max drawdown', v: pctU(st.maxDD), s: `${int(st.n)} bars` },
+    { k: 'Probabilistic Sharpe', v: pctU(psr, 1), s: `P(true Sharpe > 0) · needs ${isFinite(mtrl) ? (mtrl / c.bpy).toFixed(1) + ' yr' : '∞'} for 95%` },
     { k: 'Factory p-value', v: r.p != null ? pval(r.p) : 'not run', cls: pcls === 'good' ? 'pos' : pcls === 'bad' ? 'negv' : '', s: r.p != null ? `${r.permVals.length} shuffled walkforwards` : 'set permutations > 0' },
   ]) + equityHTML('wf', 'Pooled out-of-sample record', [{ name: 'Walkforward strategy', color: 'accent' }, { name: 'Buy & hold, same period', color: 'real' }], `Dashed lines mark refits: ${r.folds.length} folds of ${c.test} bars, each trained on ${c.anchored ? 'all prior data' : 'the previous ' + c.train + ' bars'}.`) + `
   <div class="grid2">
@@ -821,6 +858,28 @@ function renderCSCV() {
   sc.render();
 }
 
+function strategyRiskCalc() {
+  const w = S.res.wf && S.res.wf.r; if (!w) return null;
+  const tr = tradesFromRuns(w.pooled, w.pos).map(t => t.ret), theta = +$('#thetaSel').value;
+  setSeed(num('#seedIn', 2018));
+  return Object.assign(strategyRisk(tr, w.pooled.length / bpy(), theta, 2, 10000) || { none: true }, { theta, nTr: tr.length });
+}
+function strategyRiskHTML() {
+  const s = strategyRiskCalc(); S.res.risk = s;
+  if (!s || s.none) return `<div class="card"><div class="card-head"><h3>Probability of strategy failure</h3></div><div class="empty"><p>Needs at least 10 walkforward trades with both wins and losses.</p></div></div>`;
+  const cls = s.risk <= 0.05 ? 'good' : s.risk <= 0.25 ? 'warn' : 'bad';
+  return `<div class="card"><div class="card-head"><h3>Probability of strategy failure</h3>${pill(cls, 'P(fail) ' + pctU(s.risk, 1))}</div>
+  ${kpis([
+    { k: 'Win rate (precision)', v: pctU(s.pbar, 1), s: `${int(s.nTr)} walkforward trades` },
+    { k: 'Average win / loss', v: `${pct(simple(s.piPlus), 2)} / ${pct(simple(s.piMinus), 2)}`, s: 'π₊ and π₋' },
+    { k: 'Trades per year', v: s.n.toFixed(1), s: 'n' },
+    { k: `Win rate needed for Sharpe ${s.theta}`, v: isFinite(s.pStar) ? pctU(s.pStar, 1) : '—', s: `implied precision p*` },
+    { k: 'Sharpe at current win rate', v: f2(s.sharpeNow), s: 'binary-outcome model' },
+    { k: 'P(win rate < p*)', v: pctU(s.risk, 1), cls: cls === 'good' ? 'pos' : cls === 'bad' ? 'negv' : '', s: `over the next ${s.bets} trades (${s.k} yr)` },
+  ])}
+  ${reading(cls, `<p>Treat each trade as a win of ${pct(simple(s.piPlus), 2)} or a loss of ${pct(simple(s.piMinus), 2)}. At ${s.n.toFixed(0)} trades a year, the strategy needs a win rate of ${pctU(s.pStar, 1)} to reach a Sharpe of ${s.theta}. It has been winning ${pctU(s.pbar, 1)} of the time. ${s.pbar - s.pStar > 0 ? `That is a margin of ${((s.pbar - s.pStar) * 100).toFixed(1)} percentage points.` : 'It is already below the line.'} Resampling its trades, the win rate over the next ${s.k} years falls below the line ${pctU(s.risk, 1)} of the time. López de Prado would set aside strategies above 5%.</p>`)}</div>`;
+}
+
 function renderBounds() {
   const { r, c } = S.res.bounds, bp = c.bpy;
   const cls = r.bcaLower > 0 ? 'good' : r.mean > 0 ? 'warn' : 'bad'; setDot('bounds', cls);
@@ -838,6 +897,7 @@ function renderBounds() {
   </div>
   ${reading(cls, `<p>${r.bcaLower > 0 ? `With ${conf}% confidence the true mean return per bar in the market is above ${(r.bcaLower * 1e4).toFixed(2)} bp. The bound clears zero.` : `The ${conf}% lower bound on the mean return per bar is ${(r.bcaLower * 1e4).toFixed(2)} bp, below zero. The out-of-sample record cannot rule out a strategy that loses money on average.`}</p>
   <p>The naive bootstrap says there is a ${ddc}% chance the drawdown over the next ${c.horizon} bars stays under ${pctU(r.dd.naive)}. Allowing for the fact that the out-of-sample record could itself have been lucky, there is a 70% chance that this ${ddc}% bound is no worse than <b>${pctU(r.dd.bound)}</b>. Size positions for the larger number.</p>`)}`;
+  $('#out_bounds').insertAdjacentHTML('beforeend', strategyRiskHTML());
   const bootBp = r.boots.map(v => v * 1e4);
   histChart($('#ch_boot'), { values: bootBp, marker: r.bcaLower * 1e4, markerLabel: 'BCa bound ' + (r.bcaLower * 1e4).toFixed(2), refs: [{ x: 0, label: '0' }], fmt: v => v.toFixed(1), shadeLeft: true, unit: 'resamples', height: 220 });
   histChart($('#ch_dd'), { values: r.dd.outerQ.map(v => v * 100), marker: r.dd.bound * 100, markerLabel: 'Bound ' + pctU(r.dd.bound), refs: [{ x: r.dd.naive * 100, label: 'naive ' + pctU(r.dd.naive) }], fmt: v => v.toFixed(0) + '%', unit: 'outer samples', height: 220 });
@@ -895,12 +955,42 @@ function renderNested() {
   if (r.p != null) histChart($('#ch_nestp'), { values: r.permVals, marker: r.crit, markerLabel: 'Real ' + critFmt(c.crit, r.crit), fmt: v => c.crit === 'total' ? (v * 100).toFixed(0) + '%' : v.toFixed(2), height: 210 });
 }
 
+// ================= seven sins (Palomar ch.8, after Luo et al. 2014) =================
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } } };
+function sinsHTML() {
+  const R = S.res, c = getCfg();
+  const src = R.wf ? { name: 'walkforward', r: R.wf.r.pooled, pos: R.wf.r.pos } : R.backtest ? { name: 'in-sample backtest', r: R.backtest.r.returns, pos: R.backtest.r.pos } : null;
+  const items = [];
+  const self = (id, label) => `<label class="small" style="display:inline-flex;gap:6px;align-items:center;margin-top:4px"><input type="checkbox" data-sin="${id}" ${store.get('sin_' + id) === '1' ? 'checked' : ''}> ${label}</label>`;
+  items.push({ t: 'Survivorship bias', d: 'Testing only markets that still exist, or that you picked because they did well. Delisted stocks, dead coins and closed funds vanish from most free data.', v: 'not detectable from prices', st: store.get('sin_surv') === '1' ? 'good' : 'info', label: 'your check', x: self('surv', 'I chose this market before looking at its performance') });
+  items.push({ t: 'Look-ahead bias', d: 'Using information that was not available at decision time. The engine decides on bar t and trades on t+1, and the test suite checks this. Your data must still be point-in-time.', v: 'engine: no look-ahead', st: 'good', x: self('look', 'My prices are not restated or backfilled after the fact') });
+  items.push({ t: 'Storytelling bias', d: 'Inventing a reason after seeing the result. Random strategies produce convincing stretches that a story can explain.', v: '—', st: store.get('sin_story') === '1' ? 'good' : 'info', label: 'your check', x: self('story', 'I wrote down why this rule should work before testing it') });
+  let tri = 0; S.trials.forEach(v => tri += v);
+  const ds = R.optimize && R.optimize.r.dsr;
+  items.push({ t: 'Overfitting and data snooping', d: `Every configuration you try on the same data is a trial. This session you have searched ${S.trials.size} configuration${S.trials.size === 1 ? '' : 's'} on this dataset, ${int(tri)} parameter sets in all. The deflated Sharpe on the Optimize tab counts only the current grid.`, v: ds ? `DSR ${pctU(ds.dsr, 0)} · ${int(tri)} sets tried` : `${int(tri)} sets tried`, st: !ds ? 'info' : ds.dsr >= 0.95 && S.trials.size <= 3 ? 'good' : ds.dsr >= 0.8 ? 'warn' : 'bad' });
+  if (src) {
+    const tr = tradesFromRuns(src.r, src.pos), yrs = src.r.length / c.bpy, net = src.r.reduce((a, b) => a + b, 0);
+    const drag = tr.length * 2 * c.risk.cost / yrs, netAnn = net / yrs, grossAnn = netAnn + drag;
+    items.push({ t: 'Turnover and transaction costs', d: c.risk.cost === 0 ? 'Costs are set to zero, which flatters every test. Set a realistic cost per side.' : `${(tr.length / yrs).toFixed(1)} trades a year at ${(c.risk.cost * 1e4).toFixed(1)} bp per side cost about ${pctU(drag, 2)} a year: ${pct(simple(grossAnn))} gross becomes ${pct(simple(netAnn))} net (${src.name}). Slippage and market impact would add more.`, v: c.risk.cost === 0 ? 'costs off' : `drag ${pctU(drag, 2)}/yr`, st: c.risk.cost === 0 ? 'bad' : grossAnn > 0 && drag > grossAnn * 0.5 ? 'warn' : 'good' });
+    const sorted = tr.map(t => t.ret).sort((a, b) => b - a), top = sorted.slice(0, 5).reduce((a, b) => a + b, 0), tot = sorted.reduce((a, b) => a + b, 0);
+    items.push({ t: 'Outliers', d: tot > 0 ? `The 5 best of ${tr.length} trades contribute ${pct(simple(top))}; total is ${pct(simple(tot))}. Without them the ${src.name} would return ${pct(simple(tot - top))}.` : `There is no net profit for a few outliers to explain (${src.name}).`, v: tot > 0 ? `top 5 = ${pctU(top / tot, 0)} of P&L` : 'no net profit', st: tot <= 0 ? 'info' : tot - top < 0 ? 'bad' : top / tot > 0.5 ? 'warn' : 'good' });
+    const lp = tr.filter(t => t.side > 0).reduce((a, t) => a + t.ret, 0), sp = tr.filter(t => t.side < 0).reduce((a, t) => a + t.ret, 0);
+    const eq = $('#assetSel').value === 'equity';
+    items.push({ t: 'Asymmetric patterns and shorting cost', d: `Long trades made ${pct(simple(lp))}, short trades ${pct(simple(sp))}. Patterns often work on one side only, and shorts carry borrow fees${eq ? ' (common for equities)' : ''} and recall risk that this app does not charge.`, v: `long ${pct(simple(lp), 0)} · short ${pct(simple(sp), 0)}`, st: c.risk.dir === 'long' ? 'good' : sp > 0 && sp > lp && eq ? 'warn' : 'info' });
+  }
+  return `<div class="card"><div class="card-head"><h3>The seven sins of quantitative investing</h3><span class="small muted">Palomar ch.8, after Luo et al. (2014)</span></div>
+  <div class="checklist" style="border:none">${items.map((x, i) => `<div class="check"><span class="idx">${String(i + 1).padStart(2, '0')}</span><div><div class="t">${x.t}</div><div class="d">${x.d}</div>${x.x || ''}</div><span class="val">${x.v}</span>${x.st === 'info' ? pill('info', x.label || 'info') : pill(x.st, x.st === 'good' ? 'ok' : x.st === 'warn' ? 'watch' : 'problem')}</div>`).join('')}</div></div>`;
+}
+document.addEventListener('change', e => { const b = e.target.closest('[data-sin]'); if (!b) return; store.set('sin_' + b.dataset.sin, b.checked ? '1' : '0'); if (document.querySelector('.verdict-hero')) renderVerdict(); });
+
 function verdictChecks() {
   const R = S.res, out = [];
   const bt = R.backtest && R.backtest.r;
   out.push({ t: 'In-sample backtest', d: 'Profitable on the full history with your chosen parameters.', v: bt ? `Sharpe ${f2(bt.stats.sharpe)}` : '—', st: 'info', label: 'not evidence', tab: 'backtest', core: false });
   const op = R.optimize; const sr = op && op.stab ? op.stab.ratio : NaN;
   out.push({ t: 'Parameter stability', d: 'Grid neighbours of the best set score nearly as well (≥ 0.7).', v: isFinite(sr) ? f2(sr) : '—', st: !op ? 'none' : sr >= 0.7 ? 'good' : sr >= 0.4 ? 'warn' : 'bad', tab: 'optimize', core: false });
+  const ds = op && op.r.dsr;
+  out.push({ t: 'Deflated Sharpe ratio', d: `Best set beats the Sharpe that luck delivers after ${ds ? int(ds.N) : 'N'} trials (DSR ≥ 95%).`, v: ds ? `DSR ${pctU(ds.dsr, 1)}` : '—', st: !ds ? 'none' : ds.dsr >= 0.95 ? 'good' : ds.dsr >= 0.8 ? 'warn' : 'bad', tab: 'optimize', core: true });
   const m = R.mcpt && R.mcpt.r;
   out.push({ t: 'Training permutation test', d: 'Optimizer beats shuffled markets (p ≤ 0.05).', v: m ? `p = ${pval(m.p)}` : '—', st: m ? statusOf.p(m.p) : 'none', tab: 'mcpt', core: true });
   const w = R.wf && R.wf.r;
@@ -912,6 +1002,8 @@ function verdictChecks() {
   out.push({ t: 'Lower bound on future mean', d: `BCa ${b ? Math.round((1 - b.alpha) * 100) : 95}% lower bound of out-of-sample mean return above zero.`, v: b ? `${(b.bcaLower * 1e4).toFixed(2)} bp/bar` : '—', st: !b ? 'none' : b.bcaLower > 0 ? 'good' : b.mean > 0 ? 'warn' : 'bad', tab: 'bounds', core: true });
   const nw = R.nested && R.nested.r;
   if (nw && nw.p != null) out.push({ t: 'Strategy selection (nested walkforward)', d: 'Trading the strategy with the best recent out-of-sample record beats shuffled markets (p ≤ 0.05).', v: `p = ${pval(nw.p)}`, st: statusOf.p(nw.p), tab: 'nested', core: false });
+  const srk = R.risk;
+  if (srk && !srk.none) out.push({ t: 'Probability of strategy failure', d: `Win rate falls below what Sharpe ${srk.theta} needs within ${srk.k} years (≤ 5%).`, v: `P(fail) ${pctU(srk.risk, 1)}`, st: srk.risk <= 0.05 ? 'good' : srk.risk <= 0.25 ? 'warn' : 'bad', tab: 'bounds', core: false });
   out.push({ t: 'Drawdown to plan for', d: `${b ? Math.round(R.bounds.c.ddConf * 100) : 90}% drawdown over ${b ? R.bounds.c.horizon : 252} bars, with 70% confidence in the bound.`, v: b ? pctU(b.dd.bound) : '—', st: 'info', label: 'size for it', tab: 'bounds', core: false });
   return out;
 }
@@ -921,8 +1013,8 @@ function renderVerdict() {
   let big, cls, sub;
   if (done < core.length) { big = 'Audit incomplete'; cls = ''; sub = 'Run the full audit to fill in every test.'; }
   else if (good === core.length) { big = 'Evidence of an edge'; cls = 'good'; sub = 'Every core test rejected “worthless”. That is evidence, not proof. Paper-trade it and compare live results against the bounds.'; }
-  else if (good >= 3 && bad === 0) { big = 'Promising but unproven'; cls = 'warn'; sub = 'Most tests lean positive and none fail outright. Gather more data before risking money.'; }
-  else if (bad >= 3 || good === 0) { big = 'No evidence of an edge'; cls = 'bad'; sub = 'The results look like what a worthless system produces on this market. That is the usual outcome, and it is a useful one: it saved you from trading noise.'; }
+  else if (good >= core.length - 2 && bad === 0) { big = 'Promising but unproven'; cls = 'warn'; sub = 'Most tests lean positive and none fail outright. Gather more data before risking money.'; }
+  else if (bad >= Math.ceil(core.length / 2) || good === 0) { big = 'No evidence of an edge'; cls = 'bad'; sub = 'The results look like what a worthless system produces on this market. That is the usual outcome, and it is a useful one: it saved you from trading noise.'; }
   else { big = 'Inconclusive'; cls = 'warn'; sub = 'The tests disagree. Some reject “worthless”, others don’t. Treat any edge as unconfirmed.'; }
   const c = getCfg(), s = STRATS[c.strat];
   const m = S.res.mcpt && S.res.mcpt.r;
@@ -936,6 +1028,7 @@ function renderVerdict() {
     <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start"><span class="eyebrow">Core tests passed</span><div class="score">${core.map(x => `<span class="${x.st === 'none' ? '' : x.st}" title="${esc(x.t)}"></span>`).join('')}</div><span class="mono small">${good} of ${core.length}</span></div></div>
   <div class="checklist">${checks.map((x, i) => `<div class="check"><span class="idx">${String(i + 1).padStart(2, '0')}</span><div><div class="t">${x.t}</div><div class="d">${x.d} <button class="linkish" type="button" data-go="${x.tab}">Details</button></div></div><span class="val">${x.v}</span>${x.st === 'none' ? pill('info', 'not run') : x.st === 'info' ? pill('info', x.label) : pill(x.st, x.st === 'good' ? 'pass' : x.st === 'warn' ? 'weak' : 'fail')}</div>`).join('')}</div>
   ${decomp}
+  ${sinsHTML()}
   ${reading('', `<p><b>Before you trust any of this.</b> These tests used the whole file, so the verdict is about this history. Masters' advice is to hold back the most recent data, never look at it during development, and test the final system on it once. The app also leaves out slippage beyond your fixed cost, financing and carry (FX swaps, futures roll, crypto funding), short-borrow fees, and position sizing.</p><p>Try the same strategy on the random-walk dataset. Every “pass” you see there is a false positive, which is the best way to feel how often luck looks like skill.</p>`)}`;
   $('#out_verdict').querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => showTab(b.dataset.go)));
   onConfigChange();
@@ -949,6 +1042,10 @@ function buildLab() {
     <div class="chart" id="ch_labBias"><div class="empty"><p>Press run. It takes a few seconds.</p></div></div><div class="legend" id="lg_labBias" hidden><span><i style="background:var(--mark)"></i>In-sample, best of k</span><span><i style="background:var(--accent)"></i>Out-of-sample, same settings</span></div><div id="labBiasTxt"></div></div>
   <div class="card"><div class="card-head"><h3>The percent-wins fallacy</h3><button class="btn sm" type="button" id="labWinsBtn">Run 3,000 random trades each</button></div>
     <p class="muted">Random entries in a driftless random walk, exited only by a profit target or a stop-loss. The win rate depends entirely on where you put the exits. The expectancy does not move.</p><div id="labWinsOut"></div></div>
+  <div class="card"><div class="card-head"><h3>How much win rate does a Sharpe ratio need?</h3></div>
+    <p class="muted">López de Prado's binary-bet model: each trade wins π₊ or loses π₋. Change the payoffs and the trade frequency and watch how narrow the gap between success and failure can be. Defaults are the book's example.</p>
+    <div class="inline-fields"><label for="lpW">Avg win %<input type="number" id="lpW" step="0.1" value="0.5"></label><label for="lpL">Avg loss %<input type="number" id="lpL" step="0.1" value="1"></label><label for="lpN">Trades per year<input type="number" id="lpN" step="1" min="1" value="260"></label><label for="lpT">Target Sharpe<input type="number" id="lpT" step="0.1" value="2"></label></div>
+    <div class="chart" id="ch_prec"></div><div id="precOut"></div></div>
   <div class="card"><div class="card-head"><h3>A small future leak looks like genius</h3><button class="btn sm" type="button" id="labLeakBtn">Run</button></div>
     <p class="muted">A coin-flip system on a random walk, but on a small share of bars it peeks at the bar it is about to trade. Same prices and same coin flips for every line; only the leak rate changes. Masters: “Future leak is far deadlier than you imagine.”</p>
     <div class="chart" id="ch_labLeak"><div class="empty"><p>Press run.</p></div></div><div id="labLeakOut"></div></div>
@@ -974,6 +1071,20 @@ function buildLab() {
     $('#labLeakOut').innerHTML = `<div class="legend">${r.leaks.map((q, i) => `<span><i style="background:var(--${cols[i]})"></i>${(q * 100).toFixed(0)}% of bars peek · Sharpe ${f2(r.tstats[i].sharpe)} · p ${pval(r.tstats[i].p)}</span>`).join('')}</div>` +
       reading('bad', `<p>Peeking on just ${(r.leaks[2] * 100).toFixed(0)}% of bars turns a worthless system into one with a Sharpe of ${f2(r.tstats[2].sharpe)}. Real leaks are subtler: adjusted prices that use future splits, an indicator that includes today's close when you trade at today's open, a stop-loss checked against the bar's low after you already used its close, data revised after the fact. The engine here decides on bar <i>t</i>'s close and trades on bar <i>t+1</i>.</p>`);
   }));
+  const drawPrec = () => {
+    const pw = num('#lpW', 0.5) / 100, pl = -Math.abs(num('#lpL', 1)) / 100, n = Math.max(1, num('#lpN', 260)), th = num('#lpT', 2);
+    const pStar = impliedPrecision(pw, pl, n, th), p0 = impliedPrecision(pw, pl, n, 0);
+    const lo = Math.max(0.01, Math.min(p0, isFinite(pStar) ? pStar : p0) - 0.15), hi = Math.min(0.99, Math.max(p0, isFinite(pStar) ? pStar : p0) + 0.15);
+    const pts = []; for (let i = 0; i <= 60; i++) { const p = lo + (hi - lo) * i / 60; pts.push([p, sharpeFromPrecision(p, n, pw, pl)]); }
+    const ch = xyChart($('#ch_prec'), { pts, xTitle: 'win rate (precision)', xFmt: v => (v * 100).toFixed(0) + '%', yFmt: v => v.toFixed(1), tipFmt: v => 'Sharpe ' + v.toFixed(2), name: 'Sharpe', zeroY: true, height: 230 });
+    const od = ch.draw; ch.draw = (ctx, w, h, hv, C) => { od(ctx, w, h, hv, C); const L = 52, R = w - 12, T = 12, B = h - 36; const ys = pts.map(q => q[1]); let y0 = Math.min(0, ...ys), y1 = Math.max(0, ...ys); const py = (y1 - y0) * 0.08; y0 -= py; y1 += py; const sx = v => L + (v - lo) / (hi - lo) * (R - L), sy = v => B - (v - y0) / (y1 - y0) * (B - T);
+      if (th >= y0 && th <= y1) { ctx.strokeStyle = C.real; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(L, sy(th)); ctx.lineTo(R, sy(th)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = C.real; ctx.textBaseline = 'bottom'; ctx.fillText('target ' + th, L + 4, sy(th) - 3); }
+      [[p0, C.ink3], [pStar, C.real]].forEach(([p, col]) => { if (!isFinite(p) || p < lo || p > hi) return; ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(sx(p), T); ctx.lineTo(sx(p), B); ctx.stroke(); }); };
+    ch.render();
+    $('#precOut').innerHTML = reading('warn', `<p>To break even you need to win ${pctU(p0, 1)} of trades; to reach a Sharpe of ${th} you need ${isFinite(pStar) ? pctU(pStar, 1) : 'more than is possible'}. ${isFinite(pStar) ? `The gap is ${((pStar - p0) * 100).toFixed(1)} percentage points. A strategy sitting at ${pctU(pStar, 1)} is a few lost trades per hundred away from earning nothing.` : ''} More trades per year narrow the band, which is why high-frequency strategies can live on a win rate barely above break-even.</p>`);
+  };
+  ['#lpW', '#lpL', '#lpN', '#lpT'].forEach(s => $(s).addEventListener('input', drawPrec));
+  requestAnimationFrame(drawPrec);
   $('#labOut').querySelectorAll('[data-load]').forEach(b => b.addEventListener('click', () => { $('#sampleSel').value = b.dataset.load; loadSample(b.dataset.load, false).then(() => toast('Loaded. Run the full audit to test it.')); }));
 }
 
@@ -984,7 +1095,7 @@ function buildMethod() {
     <li><b>Write the hypothesis before you touch the data.</b> Say what market behaviour the rule exploits and choose a sensible parameter range. Every idea you try and discard on the same data is a hidden trial that inflates selection bias.</li>
     <li><b>Hold out the most recent data.</b> Keep the last year or two out of everything below. You get to use it once, at the very end.</li>
     <li><b>Clean the data and use log prices.</b> Check for future leak: split- and dividend-adjusted series built with later information, survivorship (only assets that still exist), signals that use the bar you trade on.</li>
-    <li><b>Backtest and optimize, then look at the sensitivity.</b> You want a broad plateau. A spike or a jagged surface is a warning before any statistics.</li>
+    <li><b>Backtest and optimize, then look at the sensitivity.</b> You want a broad plateau. A spike or a jagged surface is a warning before any statistics. Count every configuration you try and deflate the Sharpe ratio by that number.</li>
     <li><b>Permutation-test the training process.</b> If the optimizer does as well on shuffled markets, the in-sample result is training bias. Masters' rule of thumb: suspicious above p = 0.05.</li>
     <li><b>Walkforward the model factory and permutation-test it.</b> The pooled out-of-sample record is your best estimate of future performance; the permutation test says whether it could be luck.</li>
     <li><b>Correct for selection.</b> If you picked the best of several strategies, markets or settings, use selection-adjusted p-values or a nested walkforward that makes the choice out-of-sample too.</li>
@@ -999,13 +1110,15 @@ function buildMethod() {
     <tr><td><b>Selection bias</b></td><td style="white-space:normal">The optimism that appears when you pick the best of several results, even unbiased ones.</td></tr>
     <tr><td><b>Future leak</b></td><td style="white-space:normal">Any information from after the decision time reaching the simulated decision.</td></tr>
     <tr><td><b>p-value</b></td><td style="white-space:normal">If the system were worthless, the probability of a result at least this good by luck. Not the probability the system works.</td></tr>
+    <tr><td><b>Deflated Sharpe (DSR)</b></td><td style="white-space:normal">The probability that the true Sharpe ratio beats the best Sharpe you would expect from N worthless trials, allowing for track length, skewness and fat tails.</td></tr>
+    <tr><td><b>Strategy risk</b></td><td style="white-space:normal">The probability that the win rate drifts below the level the strategy needs to meet its target, as opposed to the volatility of what it holds.</td></tr>
     <tr><td><b>PBO</b></td><td style="white-space:normal">Probability of backtest overfitting: how often the in-sample best set lands below the median out-of-sample.</td></tr>
   </tbody></table></div>
   <h3>What this app does not model</h3>
   <p>Slippage beyond a fixed cost per side, liquidity and market impact, financing and carry (FX swap points, futures roll, crypto funding rates), short-borrow fees, dividends unless your prices are total-return adjusted, position sizing (every trade is one unit of exposure), and portfolios of several markets. Bar permutation assumes overnight gaps and intrabar moves are independent. For bonds, upload prices, not yields: yields can be negative and do not compound like prices.</p>
   <h3>Uploading data</h3>
   <p>A CSV with a date column and either a close column or open, high, low and close. Headers like Date, Open, High, Low, Close, Adj Close, Price are recognized; if Adj Close is present the bars are rescaled to it. Dates can be 2024-03-15, 20240315, 15/03/2024, 03/15/2024 or Unix timestamps, with or without times. Rows are sorted and duplicates dropped. Close-only data fills at the close and checks stops against closes.</p>
-  <p class="cite">Source: Timothy Masters, <i>Testing and Tuning Market Trading Systems: Algorithms in C++</i> (Apress, 2018), chapters 1 and 4–7. The algorithms here are reimplementations of the book's methods.</p>
+  <p class="cite">Sources: Timothy Masters, <i>Testing and Tuning Market Trading Systems: Algorithms in C++</i> (Apress, 2018), chapters 1 and 4–7; Marcos López de Prado, <i>Advances in Financial Machine Learning</i> (Wiley, 2018), chapters 14–15; Daniel P. Palomar, <i>Portfolio Optimization: Theory and Application</i> (Cambridge, 2025), chapter 8. The algorithms here are reimplementations of the books' methods.</p>
   </div>`;
 }
 
@@ -1021,7 +1134,7 @@ function fitWalkforward() {
   if (tr + te * 3 > avail) { tr = Math.max(100, Math.floor(avail * 0.4 / 50) * 50); te = Math.max(20, Math.floor(avail * 0.15 / 10) * 10); $('#trainIn').value = tr; $('#testIn').value = te; }
 }
 function adoptMarket(m, badge, asset, cost) {
-  S.market = m; S.res = {};
+  S.market = m; S.res = {}; S.trials = new Map();
   sendMarket();
   $('#dataBadge').textContent = badge;
   if (asset) $('#assetSel').value = asset;

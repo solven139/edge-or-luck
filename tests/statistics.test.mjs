@@ -47,3 +47,27 @@ test('Student t and normal helpers', () => {
   assert.ok(Math.abs(E.tCdf(2.086, 20) - 0.975) < 1e-3);
   assert.ok(Math.abs(E.normInv(0.975) - 1.959964) < 1e-5);
 });
+
+test('Sharpe inference matches known values', () => {
+  assert.ok(Math.abs(E.probSharpe(0.1, 0.1, 500, 0, 3) - 0.5) < 1e-6);            // PSR at the benchmark is 1/2
+  assert.ok(E.probSharpe(0.1, 0, 1000, 0, 3) > E.probSharpe(0.1, 0, 100, 0, 3));   // longer record, more confidence
+  assert.ok(E.probSharpe(0.1, 0, 500, -1, 8) < E.probSharpe(0.1, 0, 500, 0, 3));   // negative skew and fat tails hurt
+  // expected max of N standard normals: about 1.54 for N = 10 and 3.24 for N = 1000
+  assert.ok(Math.abs(E.expectedMaxSharpe(1, 10) - 1.54) < 0.05);
+  assert.ok(Math.abs(E.expectedMaxSharpe(1, 1000) - 3.24) < 0.05);
+  assert.equal(E.expectedMaxSharpe(1, 1), 0);
+});
+
+test('strategy risk reproduces the AFML ch.15 example', () => {
+  // n = 260 bets/yr, stop -1%, target +0.5%, precision 0.7  ->  Sharpe 1.173
+  assert.ok(Math.abs(E.sharpeFromPrecision(0.7, 260, 0.005, -0.01) - 1.173) < 1e-3);
+  assert.ok(Math.abs(E.impliedPrecision(0.005, -0.01, 260, 2) - 0.72) < 0.005);    // precision needed for Sharpe 2
+  assert.ok(Math.abs(E.impliedPrecision(0.005, -0.01, 260, 0) - 2 / 3) < 1e-9);    // break-even precision
+});
+
+test('deflated Sharpe: picking the best of many random strategies is not significant', () => {
+  E.setSeed(31); E._set(E.synthRW(3000, 0.01, 0), 252);
+  const o = E.JOBS.optimize({ ...base, ranges: { fast: { min: 2, max: 40, step: 2 }, slow: { min: 10, max: 200, step: 10 } }, crit: 'sharpe' });
+  assert.ok(o.dsr.N > 300 && o.dsr.dsr < 0.95, `dsr ${o.dsr.dsr}`);
+  assert.ok(o.dsr.srStar > 0);
+});

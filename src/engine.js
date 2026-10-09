@@ -476,6 +476,69 @@ function drawdownBounds(r, horizon, ddConf, boundConf, nOuter, nInner, prog) {
   return { naive: toPct(quantile(naiveSorted, ddConf)), bound: toPct(quantile(q, boundConf)), median: toPct(quantile(naiveSorted, 0.5)), outerQ: q.map(toPct) };
 }
 
+// ---------- Sharpe ratio inference (López de Prado, AFML ch.14; Bailey & López de Prado 2012, 2014) ----------
+// All Sharpe ratios here are per bar (not annualized), as the formulas require.
+const EULER_GAMMA = 0.5772156649015329;
+function sharpeMoments(r) {
+  const T = r.length; let s = 0; for (let i = 0; i < T; i++) s += r[i];
+  const mu = s / T; let m2 = 0, m3 = 0, m4 = 0;
+  for (let i = 0; i < T; i++) { const d = r[i] - mu; m2 += d * d; m3 += d * d * d; m4 += d * d * d * d; }
+  m2 /= T; m3 /= T; m4 /= T;
+  const sd = Math.sqrt(m2);
+  return { T, sr: sd > 0 ? mu / sd : 0, skew: m2 > 0 ? m3 / Math.pow(m2, 1.5) : 0, kurt: m2 > 0 ? m4 / (m2 * m2) : 3 };
+}
+// PSR: probability that the true Sharpe ratio exceeds srStar, given track length, skewness and kurtosis (kurt = 3 for Gaussian)
+function probSharpe(sr, srStar, T, skew, kurt) {
+  const den = 1 - skew * sr + (kurt - 1) / 4 * sr * sr;
+  if (T < 2 || !(den > 0)) return NaN;
+  return normCdf((sr - srStar) * Math.sqrt(T - 1) / Math.sqrt(den));
+}
+// Expected maximum Sharpe ratio among N independent worthless trials whose Sharpe ratios have variance varSR
+function expectedMaxSharpe(varSR, N) {
+  if (N < 2 || !(varSR > 0)) return 0;
+  return Math.sqrt(varSR) * ((1 - EULER_GAMMA) * normInv(1 - 1 / N) + EULER_GAMMA * normInv(1 - 1 / (N * Math.E)));
+}
+// Minimum track record length (bars) for the observed Sharpe ratio to beat srStar with confidence 1 - alpha
+function minTrackRecord(sr, srStar, skew, kurt, alpha) {
+  if (sr <= srStar) return Infinity;
+  const z = normInv(1 - alpha);
+  return 1 + (1 - skew * sr + (kurt - 1) / 4 * sr * sr) * Math.pow(z / (sr - srStar), 2);
+}
+// Deflated Sharpe ratio of the selected trial, given the Sharpe ratios of all N trials
+function deflatedSharpe(bestReturns, trialSRs) {
+  const mm = sharpeMoments(bestReturns), N = trialSRs.length;
+  let mu = 0; for (const v of trialSRs) mu += v; mu /= N;
+  let vv = 0; for (const v of trialSRs) vv += (v - mu) * (v - mu); vv /= Math.max(N - 1, 1);
+  const srStar = expectedMaxSharpe(vv, N);
+  return { sr: mm.sr, T: mm.T, skew: mm.skew, kurt: mm.kurt, N, varSR: vv, srStar,
+    dsr: probSharpe(mm.sr, srStar, mm.T, mm.skew, mm.kurt), psr0: probSharpe(mm.sr, 0, mm.T, mm.skew, mm.kurt),
+    minTRL: minTrackRecord(mm.sr, srStar, mm.skew, mm.kurt, 0.05) };
+}
+
+// ---------- Strategy risk: probability of failing a target Sharpe (AFML ch.15) ----------
+// Bets pay piPlus with probability p and piMinus otherwise; n bets per year.
+function sharpeFromPrecision(p, n, piPlus, piMinus) {
+  const d = piPlus - piMinus; if (p <= 0 || p >= 1 || d <= 0) return NaN;
+  return (d * p + piMinus) / (d * Math.sqrt(p * (1 - p))) * Math.sqrt(n);
+}
+function impliedPrecision(piPlus, piMinus, n, theta) {
+  const d = piPlus - piMinus, a = (n + theta * theta) * d * d, b = (2 * n * piMinus - theta * theta * d) * d, c = n * piMinus * piMinus;
+  const disc = b * b - 4 * a * c; if (disc < 0 || a === 0) return NaN;
+  return (-b + Math.sqrt(disc)) / (2 * a);
+}
+function strategyRisk(tradeRets, years, theta, k, iters) {
+  const T = tradeRets.length; if (T < 10 || !(years > 0)) return null;
+  let sp = 0, np = 0, sm = 0, nm = 0;
+  for (const x of tradeRets) { if (x > 0) { sp += x; np++; } else { sm += x; nm++; } }
+  if (!np || !nm) return null;
+  const piPlus = sp / np, piMinus = sm / nm, n = T / years, pbar = np / T;
+  const pStar = impliedPrecision(piPlus, piMinus, n, theta);
+  const m = Math.max(1, Math.floor(n * (k || 2))), I = iters || 10000;
+  let fail = 0; const ps = new Float64Array(I);
+  for (let i = 0; i < I; i++) { let w = 0; for (let j = 0; j < m; j++) if (tradeRets[randInt(T)] > 0) w++; ps[i] = w / m; if (ps[i] < pStar) fail++; }
+  return { piPlus, piMinus, n, pbar, pStar, risk: fail / I, sharpeNow: sharpeFromPrecision(pbar, n, piPlus, piMinus), bets: m, k: k || 2 };
+}
+
 // ---------- Jobs ----------
 let MKT = null, BPY = 252;
 let post = () => { }, progress = () => { };
@@ -505,7 +568,9 @@ function jobOptimize(cfg) {
     tot[c] = critRange(B.R, c * B.N, 0, B.N, 'sharpe', BPY);
     if (vals[c] > vals[best]) best = c;
   }
-  return { combos: g.combos, lists: g.lists, keys: g.keys, vals: Array.from(vals), sharpes: Array.from(tot), best, start, N: B.N, nTrades: Array.from(B.nT) };
+  const perBar = Array.from(tot, v => v / Math.sqrt(BPY));
+  const dsr = deflatedSharpe(B.R.subarray(best * B.N, (best + 1) * B.N), perBar);
+  return { combos: g.combos, lists: g.lists, keys: g.keys, vals: Array.from(vals), sharpes: Array.from(tot), best, start, N: B.N, nTrades: Array.from(B.nT), dsr };
 }
 
 function jobMCPT(cfg) {
@@ -893,7 +958,7 @@ function handle(msg) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { STRATS, enumerateGrid, makeMarket, cloneMarket, preparePermute, doPermute, simulate, buildReturns, critRange, bestCombo, stats, tradeStats,
-    JOBS, handle, setSeed, fullMetrics, tradesFromRuns, synthRW, tCdf, normInv, normCdf, bcaLowerMean, gridStartFor, Ctx,
+    JOBS, handle, setSeed, fullMetrics, tradesFromRuns, sharpeMoments, probSharpe, expectedMaxSharpe, minTrackRecord, deflatedSharpe, sharpeFromPrecision, impliedPrecision, strategyRisk, synthRW, tCdf, normInv, normCdf, bcaLowerMean, gridStartFor, Ctx,
     _set(m, bpy) { MKT = m; BPY = bpy; }, _hooks(p, pr) { post = p; progress = pr; } };
 } else if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
   let lastProg = 0, curId = null;

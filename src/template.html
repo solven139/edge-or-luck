@@ -1,0 +1,330 @@
+<title>Edge or Luck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Layout: an instrument bench. Control rail on the left (the hypothesis you set up),
+   evidence bench on the right (the tests that try to knock it down). */
+:root {
+  --bg: #EDF0F4;
+  --surface: #FBFCFD;
+  --surface-2: #E3E8EF;
+  --line: #D2D9E3;
+  --ink: #111A2B;
+  --ink-2: #485469;
+  --ink-3: #6B778C;
+  --accent: #2F55D4;
+  --accent-ink: #FFFFFF;
+  --accent-tint: rgba(47, 85, 212, .10);
+  --real: #C27A00;
+  --real-tint: rgba(194, 122, 0, .16);
+  --mark: #A3AEBF;
+  --good: #1D7F47;
+  --good-tint: rgba(29, 127, 71, .12);
+  --warn: #9A6410;
+  --warn-tint: rgba(183, 121, 31, .15);
+  --bad: #B8312F;
+  --bad-tint: rgba(184, 49, 47, .11);
+  --neg: #C2552B;
+  /* competitor series (reference categorical order, slot 1 is --accent) */
+  --c2: #EB6834; --c3: #1BAF7A; --c4: #EDA100; --c5: #E87BA4; --c6: #008300; --c7: #4A3AA7;
+  --font-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B101A; --surface: #121826; --surface-2: #1A2234; --line: #28324A;
+    --ink: #E3E8F2; --ink-2: #A9B4C8; --ink-3: #7E899F;
+    --accent: #6684F2; --accent-ink: #0B101A; --accent-tint: rgba(102, 132, 242, .16);
+    --real: #C98A22; --real-tint: rgba(201, 138, 34, .20); --mark: #48536D;
+    --good: #46B47C; --good-tint: rgba(70, 180, 124, .15); --warn: #D7A446; --warn-tint: rgba(215, 164, 70, .16);
+    --bad: #E7716A; --bad-tint: rgba(231, 113, 106, .15); --neg: #E0794F;
+    --c2: #D95926; --c3: #199E70; --c4: #C98500; --c5: #D55181; --c6: #008300; --c7: #9085E9;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B101A; --surface: #121826; --surface-2: #1A2234; --line: #28324A;
+  --ink: #E3E8F2; --ink-2: #A9B4C8; --ink-3: #7E899F;
+  --accent: #6684F2; --accent-ink: #0B101A; --accent-tint: rgba(102, 132, 242, .16);
+  --real: #C98A22; --real-tint: rgba(201, 138, 34, .20); --mark: #48536D;
+  --good: #46B47C; --good-tint: rgba(70, 180, 124, .15); --warn: #D7A446; --warn-tint: rgba(215, 164, 70, .16);
+  --bad: #E7716A; --bad-tint: rgba(231, 113, 106, .15); --neg: #E0794F;
+  --c2: #D95926; --c3: #199E70; --c4: #C98500; --c5: #D55181; --c6: #008300; --c7: #9085E9;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { background: var(--bg); color: var(--ink); }
+body { font-family: var(--font-body); font-size: 14px; line-height: 1.5; padding-inline: 16px; padding-block: 0 48px; }
+h1, h2, h3 { font-family: var(--font-display); font-stretch: 112%; text-wrap: balance; margin: 0; letter-spacing: -.01em; }
+h2 { font-size: 22px; font-weight: 700; }
+h3 { font-size: 15px; font-weight: 700; font-stretch: 105%; }
+p { margin: 0; }
+a { color: var(--accent); }
+.mono, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.muted { color: var(--ink-2); }
+.small { font-size: 12.5px; }
+
+/* ---------- header ---------- */
+.top { max-width: 1440px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; padding-block: 22px 16px; border-bottom: 1px solid var(--line); }
+.brand { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.brand h1 { font-size: clamp(30px, 4.4vw, 46px); font-weight: 800; font-stretch: 125%; line-height: .95; letter-spacing: -.02em; }
+.brand h1 .or { font-weight: 500; font-stretch: 100%; color: var(--ink-3); font-style: normal; }
+.thesis { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--ink-2); }
+.h0 { font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--line); background: var(--surface); padding: 2px 8px; border-radius: 99px; color: var(--ink); }
+.top-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+/* ---------- buttons & inputs ---------- */
+button { font: inherit; cursor: pointer; }
+.btn { border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 7px 12px; border-radius: var(--r); font-weight: 500; display: inline-flex; gap: 8px; align-items: center; }
+.btn:hover { border-color: var(--ink-3); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.sm { padding: 4px 9px; font-size: 12.5px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input, select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 7px; min-width: 0; }
+input[type="number"] { font-family: var(--font-mono); font-size: 13px; }
+input[type="checkbox"] { accent-color: var(--accent); }
+label { color: var(--ink-2); font-size: 12.5px; }
+
+/* ---------- layout ---------- */
+.layout { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 24px; padding-top: 20px; }
+@media (max-width: 960px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.rail { display: flex; flex-direction: column; gap: 14px; align-self: start; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); max-height: calc(100vh - 24px); overflow-y: auto; padding-right: 4px; }
+@media (max-width: 960px) { .rail { position: static; max-height: none; overflow: visible; } }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.box-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr) 128px; gap: 8px; align-items: center; }
+.field > select, .field > input { width: 100%; }
+.field.wide { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.drop { border: 1.5px dashed var(--line); border-radius: var(--r); padding: 12px; text-align: center; color: var(--ink-2); font-size: 12.5px; cursor: pointer; }
+.drop.over { border-color: var(--accent); background: var(--accent-tint); }
+.drop strong { color: var(--accent); font-weight: 600; }
+.datainfo { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+.datainfo b { color: var(--ink); font-weight: 500; }
+.ptable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ptable th { font-weight: 500; color: var(--ink-3); text-align: left; padding: 2px 3px; font-size: 11px; }
+.ptable td { padding: 2px 3px; }
+.ptable td:first-child { color: var(--ink-2); }
+.ptable input { width: 100%; padding: 3px 5px; }
+.gridcount { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+.gridcount.over { color: var(--bad); }
+.note { font-size: 12px; color: var(--ink-2); background: var(--surface-2); border-radius: 5px; padding: 7px 9px; }
+details.adv summary { cursor: pointer; color: var(--ink-2); font-size: 12.5px; }
+
+/* ---------- tabs ---------- */
+.bench { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.tabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--line); scrollbar-width: thin; }
+.tab { border: none; background: none; color: var(--ink-2); padding: 9px 8px 10px; font-weight: 500; white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; gap: 6px; align-items: center; }
+.tab .n { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.tab .dot.good { background: var(--good); } .tab .dot.warn { background: var(--warn); } .tab .dot.bad { background: var(--bad); }
+.panel { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 16px; align-items: flex-start; }
+.panel-head .q { color: var(--ink-2); max-width: 70ch; margin-top: 4px; }
+.stale { background: var(--warn-tint); color: var(--ink); border-radius: 5px; padding: 7px 10px; font-size: 12.5px; }
+
+/* ---------- KPI strip ---------- */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.kpi { background: var(--surface); outline: 1px solid var(--line); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kpi .k { font-size: 11.5px; color: var(--ink-3); }
+.kpi .v { font-family: var(--font-mono); font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; line-height: 1.3; }
+.kpi .s { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); overflow-wrap: anywhere; }
+.pos { color: var(--good); } .negv { color: var(--bad); }
+
+.pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.good { color: var(--good); background: var(--good-tint); }
+.pill.warn { color: var(--warn); background: var(--warn-tint); }
+.pill.bad { color: var(--bad); background: var(--bad-tint); }
+.pill.info { color: var(--ink-2); background: var(--surface-2); }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1100px) { .grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } }
+.chart { position: relative; width: 100%; }
+.chart canvas { display: block; width: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--ink-2); }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.legend i.sq { height: 10px; width: 10px; }
+[id^="out_"] { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+.reading { border-left: 3px solid var(--accent); padding: 2px 0 2px 14px; display: flex; flex-direction: column; gap: 8px; max-width: 78ch; }
+.reading.good { border-color: var(--good); } .reading.warn { border-color: var(--warn); } .reading.bad { border-color: var(--bad); }
+.reading p { color: var(--ink); }
+details.how { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+details.how > summary { cursor: pointer; padding: 11px 14px; font-weight: 600; font-family: var(--font-display); font-stretch: 105%; display: flex; justify-content: space-between; gap: 10px; list-style: none; }
+details.how > summary::-webkit-details-marker { display: none; }
+details.how > summary::after { content: "+"; font-family: var(--font-mono); color: var(--ink-3); }
+details.how[open] > summary::after { content: "−"; }
+.how-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; max-width: 80ch; color: var(--ink); }
+.how-body ul, .how-body ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 5px; }
+.formula { font-family: var(--font-mono); font-size: 13px; background: var(--surface-2); border-radius: 5px; padding: 8px 10px; overflow-x: auto; white-space: pre; }
+.cite { font-size: 12px; color: var(--ink-3); }
+
+.tablewrap { overflow-x: auto; }
+table.data { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.data th { text-align: left; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--line); padding: 6px 8px; white-space: nowrap; }
+table.data td { border-bottom: 1px solid var(--line); padding: 6px 8px; white-space: nowrap; }
+table.data td.num, table.data th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+table.data tr:last-child td { border-bottom: none; }
+
+.empty { border: 1.5px dashed var(--line); border-radius: var(--r); padding: 28px; text-align: center; color: var(--ink-2); display: flex; flex-direction: column; gap: 10px; align-items: center; }
+
+/* ---------- verdict ---------- */
+.verdict-hero { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px 24px; align-items: center; }
+@media (max-width: 720px) { .verdict-hero { grid-template-columns: minmax(0, 1fr); } }
+.verdict-hero .big { font-family: var(--font-display); font-weight: 800; font-stretch: 118%; font-size: clamp(24px, 3.2vw, 34px); line-height: 1.05; }
+.verdict-hero .big.good { color: var(--good); } .verdict-hero .big.warn { color: var(--warn); } .verdict-hero .big.bad { color: var(--bad); }
+.score { display: flex; gap: 4px; }
+.score span { width: 34px; height: 10px; border-radius: 2px; background: var(--surface-2); }
+.score span.good { background: var(--good); } .score span.bad { background: var(--bad); } .score span.warn { background: var(--warn); }
+.checklist { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+.check { display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(120px, 210px) 124px; gap: 12px; align-items: center; padding: 11px 14px; border-top: 1px solid var(--line); }
+.check:first-child { border-top: none; }
+.check .idx { font-family: var(--font-mono); color: var(--ink-3); font-size: 12px; }
+.check .t { font-weight: 600; }
+.check .d { font-size: 12.5px; color: var(--ink-2); }
+.check .val { font-family: var(--font-mono); font-size: 13px; }
+.check > .pill { justify-self: end; }
+.check button.linkish { background: none; border: none; padding: 0; color: var(--accent); font-size: 12.5px; text-align: left; }
+@media (max-width: 720px) { .check { grid-template-columns: 28px minmax(0, 1fr) auto; } .check .val { grid-column: 2 / 3; grid-row: 2; } .check > .pill { grid-row: 1; grid-column: 3; } }
+.decomp { display: flex; flex-direction: column; gap: 8px; }
+.drow { display: grid; grid-template-columns: 150px minmax(0, 1fr) 84px; gap: 10px; align-items: center; font-size: 12.5px; }
+.dtrack { position: relative; height: 16px; background: var(--surface-2); border-radius: 3px; }
+.dtrack .zero { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--ink-3); }
+.dtrack .bar { position: absolute; top: 3px; bottom: 3px; border-radius: 2px; }
+.drow .num { text-align: right; }
+
+/* ---------- progress ---------- */
+.runbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--surface); border-top: 1px solid var(--line); padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: 14px; }
+.runbar .track { flex: 1; height: 5px; background: var(--surface-2); border-radius: 3px; overflow: hidden; min-width: 60px; }
+.runbar .fill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+.runbar .msg { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50%; }
+.toast { position: fixed; right: 16px; bottom: 70px; z-index: 30; background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: var(--r); font-size: 13px; max-width: min(420px, calc(100vw - 32px)); }
+
+.lessons { display: flex; flex-direction: column; gap: 16px; }
+.method { display: flex; flex-direction: column; gap: 14px; max-width: 82ch; }
+.method ol.steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; }
+.method ol.steps li::marker { font-family: var(--font-mono); color: var(--ink-3); }
+.method h3 { margin-top: 6px; }
+.chk { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.chk label { display: inline-flex; gap: 6px; align-items: center; color: var(--ink); font-size: 13px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.seg button { border: none; background: var(--surface); color: var(--ink-2); padding: 3px 10px; font-size: 12px; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+table.data tr.grp td { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding-top: 12px; border-bottom: 1px solid var(--line); }
+table.data td.lab { white-space: normal; color: var(--ink-2); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 7px; vertical-align: -1px; }
+.inline-fields { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+.inline-fields label { display: inline-flex; gap: 8px; align-items: center; }
+.inline-fields input { width: 90px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+<!--BODY-->
+
+<header class="top">
+  <div class="brand">
+    <span class="eyebrow">Strategy testing workbench · after T. Masters, <i>Testing and Tuning Market Trading Systems</i></span>
+    <h1>Edge <span class="or">or</span> Luck</h1>
+    <div class="thesis"><span class="h0">H₀: this strategy is worthless</span><span class="small">Every test below tries to reject that. Most strategies fail to.</span></div>
+  </div>
+  <div class="top-actions">
+    <button class="btn primary" id="runAll" type="button">Run full audit</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="rail" aria-label="Setup">
+    <section class="box">
+      <div class="box-head"><h3>1 · Market data</h3><span class="eyebrow" id="dataBadge">sample</span></div>
+      <div class="field wide">
+        <label for="sampleSel">Dataset</label>
+        <select id="sampleSel">
+          <option value="EURUSD">EUR/USD daily, 2007–2026 (real)</option>
+          <option value="BTCUSD">BTC/USD daily, 2015–2026 (real)</option>
+          <option value="RW">Random walk, 4,000 bars (no edge exists)</option>
+          <option value="TREND">Planted trend, 4,000 bars (a real edge exists)</option>
+          <option value="UPLOAD" disabled>Your upload</option>
+        </select>
+      </div>
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="Upload a CSV file">
+        <strong>Upload CSV</strong> or drop it here<br><span class="small">Date + Close, or Date, Open, High, Low, Close. Any equity, FX pair, bond price or crypto.</span>
+        <input type="file" id="fileIn" accept=".csv,.txt,.tsv,text/csv" hidden>
+      </div>
+      <div class="field">
+        <label for="assetSel">Asset class</label>
+        <select id="assetSel"><option value="fx">FX</option><option value="equity">Equity / ETF</option><option value="bond">Bond / rates future</option><option value="crypto">Crypto</option><option value="other">Other</option></select>
+      </div>
+      <div class="field"><label for="bpyIn">Bars per year</label><input type="number" id="bpyIn" min="1" step="1" value="252"></div>
+      <div class="datainfo" id="dataInfo"></div>
+    </section>
+
+    <section class="box">
+      <div class="box-head"><h3>2 · Strategy</h3><span class="eyebrow" id="famBadge"></span></div>
+      <div class="field wide"><label for="stratSel">Rule</label><select id="stratSel"></select></div>
+      <p class="small muted" id="stratBlurb"></p>
+      <table class="ptable" id="ptable"></table>
+      <div class="gridcount" id="gridCount"></div>
+      <p class="small muted">“Value” is the single backtest. Min/max/step define the grid the optimizer searches, and every permutation run re-searches it.</p>
+    </section>
+
+    <section class="box">
+      <div class="box-head"><h3>3 · Positions & risk</h3></div>
+      <div class="field"><label for="dirSel">Direction</label><select id="dirSel"><option value="both">Long & short</option><option value="long">Long only</option><option value="short">Short only</option></select></div>
+      <div class="field"><label for="execSel">Fill</label><select id="execSel"><option value="open">Next bar open</option><option value="close">Signal bar close</option></select></div>
+      <div class="field"><label for="slIn">Stop-loss %</label><input type="number" id="slIn" min="0" step="0.5" value="0"></div>
+      <div class="field"><label for="tpIn">Take-profit %</label><input type="number" id="tpIn" min="0" step="0.5" value="0"></div>
+      <div class="field"><label for="mbIn">Max bars in trade</label><input type="number" id="mbIn" min="0" step="1" value="0"></div>
+      <div class="field"><label for="capIn">Starting capital</label><input type="number" id="capIn" min="1" step="1000" value="100000"></div>
+      <div class="field"><label for="costIn">Cost per side (bps)</label><input type="number" id="costIn" min="0" step="0.5" value="1"></div>
+      <p class="small muted">0 switches a rule off. After a stop, target or time exit the system stays flat until the signal changes.</p>
+    </section>
+
+    <section class="box">
+      <div class="box-head"><h3>4 · Test settings</h3></div>
+      <div class="field"><label for="critSel">Optimize for</label><select id="critSel"><option value="total">Total log return</option><option value="sharpe">Sharpe ratio</option><option value="pf">Profit factor</option></select></div>
+      <div class="field"><label for="npermIn">Permutations</label><input type="number" id="npermIn" min="19" step="1" value="199"></div>
+      <div class="field"><label for="trainIn">Walkforward train bars</label><input type="number" id="trainIn" min="50" step="50" value="1000"></div>
+      <div class="field"><label for="testIn">Walkforward test bars</label><input type="number" id="testIn" min="5" step="5" value="250"></div>
+      <div class="field"><label for="wfPermIn">Walkforward permutations</label><input type="number" id="wfPermIn" min="0" step="1" value="99"></div>
+      <details class="adv">
+        <summary>More settings</summary>
+        <div class="box" style="border:none;padding:10px 0 0;">
+          <div class="field"><label for="anchorChk">Anchored (expanding) training</label><input type="checkbox" id="anchorChk"></div>
+          <div class="field"><label for="blocksSel">CSCV blocks</label><select id="blocksSel"><option>8</option><option selected>10</option><option>12</option><option>14</option><option>16</option></select></div>
+          <div class="field"><label for="alphaSel">Confidence</label><select id="alphaSel"><option value="0.1">90%</option><option value="0.05" selected>95%</option><option value="0.01">99%</option></select></div>
+          <div class="field"><label for="horizonIn">Drawdown horizon (bars)</label><input type="number" id="horizonIn" min="20" step="1" value="252"></div>
+          <div class="field"><label for="ddConfSel">Drawdown confidence</label><select id="ddConfSel"><option value="0.9" selected>90%</option><option value="0.95">95%</option><option value="0.99">99%</option></select></div>
+          <div class="field"><label for="seedIn">Random seed</label><input type="number" id="seedIn" step="1" value="2018"></div>
+        </div>
+      </details>
+    </section>
+  </aside>
+
+  <main class="bench">
+    <nav class="tabs" role="tablist" id="tabs"></nav>
+    <div id="panels"></div>
+  </main>
+</div>
+
+<div class="runbar" id="runbar" hidden>
+  <span class="msg" id="runMsg">Working…</span>
+  <div class="track"><div class="fill" id="runFill"></div></div>
+  <button class="btn sm" id="cancelBtn" type="button">Cancel</button>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>/*DATA*/</script>
+<script id="engine-src">/*ENGINE*/</script>
+<script>/*CSV*/</script>
+<script>/*UI*/</script>
